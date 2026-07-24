@@ -16,6 +16,8 @@ Built with LangGraph + LangChain + Groq (LLM) + Google embeddings + Tavily.
 import os
 from typing import TypedDict, Annotated
 
+ 
+
 from dotenv import load_dotenv
 from langgraph.graph import START, END, StateGraph
 from langgraph.graph.message import add_messages
@@ -37,11 +39,13 @@ model = ChatGroq(
     model="llama-3.1-8b-instant",
     temperature=0.2
 )
+ 
 
  
 embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
  
 search_tool = TavilySearch(max_results=3)
+tools=[search_tool]
 
 academic_retriever = None
 fees_retriever = None
@@ -52,6 +56,7 @@ class State(TypedDict):
     query_type: str
     retrieved_context: str
     programme: str  
+    friend_mode:bool
  
 
 
@@ -82,62 +87,29 @@ def build_retriever(path: str):
         search_kwargs={"k": 5, "fetch_k": 50}
     )
 
+
+
+
 def classification_node(state: State) -> dict:
-    """
-    Figures out whether the question is about academics, fees, or
-    something general. We keep the LLM call isolated here instead
-    of putting it inside the router, since LangGraph routers should
-    stay lightweight and just read a value, not call an LLM.
-    """
     user_query = state["messages"][-1].content
-
     prompt = f"""
-You are a routing and intent-classification agent for a college assistant.
+Classify the following query into ONE category:
+- academic
+- fee
+- general
+- reminder
+- health
+- event
 
-Classify the following user query into exactly ONE of these categories:
-
-1. academic
-Use for:
-- Courses, subjects, syllabus, faculty, timetable, attendance
-- Examinations, results, assignments, internal marks, credits
-- Semester info, study materials, academic calendar
-- Laboratories, projects, degree requirements, admissions
-
-2. fee
-Use for:
-- Tuition fees, fee structure, hostel fees, transport fees
-- Scholarships, fee payment, payment deadline, refund policy
-- Late fee, financial aid, receipts, payment methods
-- Education loans, installments
-
-3. general
-Use for:
-- Hostel, library, sports, clubs, placements, events
-- Contact info, office timings, college location, parking
-- Wi-Fi, cafeteria, holidays, greetings, or anything else
-
-Rules:
-- Choose exactly ONE category.
-- Do not explain. Do not answer the question.
-- Return ONLY one word: academic / fee / general
-
-User Query:
-{user_query}
+User Query: {user_query}
+Return only the category word.
 """
-
     result = model.invoke(prompt)
     category = result.content.strip().lower()
-
- 
-    if category not in ["academic", "fee", "general"]:
-        if "academic" in category:
-            category = "academic"
-        elif "fee" in category:
-            category = "fee"
-        else:
-            category = "general"
-
+    if category not in ["academic", "fee", "general", "reminder", "health", "event"]:
+        category = "general"
     return {"query_type": category}
+
 
 def academic_rag_node(state: State) -> dict:
     query = state["messages"][-1].content
@@ -162,7 +134,7 @@ def general_node(state: State) -> dict:
     """
     Handles general student queries (hostel, library, sports, clubs, placements, events, etc).
     
-    - Acts like an informative, supportive friend instead of a formal teacher.
+    - Acts like a supportive friend instead of a formal teacher.
     - If the query clearly needs current or real-world info (like placement news, upcoming events),
       then use Tavily search to fetch fresh context.
     - Otherwise, respond directly with a warm, conversational answer using the model’s own knowledge.
@@ -191,6 +163,8 @@ def general_node(state: State) -> dict:
 
     return {"retrieved_context": context}
 
+ 
+
 def response_node(state: State) -> dict:
     """Generates the final answer, supportive in friend mode, factual otherwise."""
     query = state["messages"][-1].content
@@ -199,7 +173,7 @@ def response_node(state: State) -> dict:
     friend_mode = state.get("friend_mode", False)
 
     if friend_mode or context == "NO_RETRIEVAL_NEEDED":
-        # Friend/general mode → supportive buddy
+      
         prompt = (
             f"You are a supportive, motivating friend for a {programme} student. "
             f"Respond warmly, casually, and encouragingly. "
@@ -209,15 +183,16 @@ def response_node(state: State) -> dict:
             f"Give a kind, uplifting response that makes the student feel supported."
         )
     else:
-        # Academic/Fee mode → factual but approachable
+       
         prompt = (
-            f"You are a helpful college assistant talking to a {programme} student. "
+            f"You are a supportive, motivating friend and assistant talking to a {programme} student. "
             f"Use the following context from the official college documents to answer "
             f"the question accurately. If the context mentions specific figures for "
             f"different programmes, highlight the one relevant to {programme} if possible.\n\n"
             f"Context:\n{context}\n\n"
             f"Question: {query}\n\n"
             f"Give a clear, precise answer but keep the tone approachable and encouraging."
+            f"make sure you act a friend and do chatting like a friend"
         )
 
     response = model.invoke(prompt)
@@ -226,12 +201,10 @@ def response_node(state: State) -> dict:
 
 def router(state: State) -> str:
     """Just reads the classification result and sends the query to the right node."""
-    if state["query_type"] == "academic":
-        return "academic"
-    elif state["query_type"] == "fee":
-        return "fee"
-    else:
-        return "general"
+    qtype = state["query_type"]
+    if qtype in ["academic", "fee", "general" ]:
+        return qtype
+    return "general"
 
  
 
@@ -257,38 +230,29 @@ graph = builder.compile(checkpointer=memory)
  
 
 def main():
-    print("Welcome to the College Assistant \n")
-
-    
-    student_programme = input(
-        "Which programme are you in? (e.g. BCA, BBA, B.Com(H), BSc CS, MBA, BA, B.Tech...): "
-    ).strip()
-
+    print("Welcome to College Saathi 🎓\n")
+    student_programme = input("Which programme are you in? ").strip()
     if not student_programme:
         student_programme = "Unknown"
+    print(f"\nGreat! You're set as a {student_programme} student.\n")
 
-    print(f"\nGreat! You're set as a {student_programme} student.")
-
- 
     config = {"configurable": {"thread_id": "student-session-1"}}
 
     while True:
         user_query = input("You: ")
-
         if user_query.lower() in ["exit", "quit"]:
-            print("Assistant: Bye! Have a great day.")
+            print("Assistant: Bye! Have a great day 💖")
             break
 
         result = graph.invoke(
             {
                 "programme": student_programme,
+                "friend_mode": True,  
                 "messages": [("human", user_query)]
             },
             config=config
         )
-
         print(f"Assistant: {result['messages'][-1].content}")
-
 
 if __name__ == "__main__":
     main()
