@@ -181,6 +181,7 @@ def response_node(state: State) -> dict:
             f"Use emojis naturally, and avoid giving dictionary-style explanations. "
             f"User’s message: {query}\n\n"
             f"Give a kind, uplifting response that makes the student feel supported."
+            f"give detailed answer"
         )
     else:
        
@@ -193,6 +194,7 @@ def response_node(state: State) -> dict:
             f"Question: {query}\n\n"
             f"Give a clear, precise answer but keep the tone approachable and encouraging."
             f"make sure you act a friend and do chatting like a friend"
+            f"give detailed answer"
         )
 
     response = model.invoke(prompt)
