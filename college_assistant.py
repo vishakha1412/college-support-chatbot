@@ -21,7 +21,7 @@ from typing import TypedDict, Annotated
 from dotenv import load_dotenv
 from langgraph.graph import START, END, StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -175,29 +175,36 @@ def response_node(state: State) -> dict:
     if friend_mode or context == "NO_RETRIEVAL_NEEDED":
       
         prompt = (
-            f"You are a supportive, motivating friend for a {programme} student. "
+            
+            f"If no programme available then talk in general friendly way and don't hallunciation."
             f"Respond warmly, casually, and encouragingly. "
             f"Keep answers short and conversational, like chatting with a friend. "
             f"Use emojis naturally, and avoid giving dictionary-style explanations. "
             f"User’s message: {query}\n\n"
-            f"Give a kind, uplifting response that makes the student feel supported."
-            f"give detailed answer"
+            f"Give a kind, uplifting response that makes the user feel supported."
+            f"give detailed answer ,if needed "
+            f"If the context does not contain the answer, reply: 'I don’t have that information in the college documents.'"
         )
     else:
        
         prompt = (
             f"You are a supportive, motivating friend and assistant talking to a {programme} student. "
-            f"Use the following context from the official college documents to answer "
+            f"If no programme available then talk in general friendly way and don't hallunciation."
+            f"Use the following context from the official college documents to answer  and if no context in uploaded document then while giving response say i didn't find context in document so i am giving response using general knowlegde and web search."
             f"the question accurately. If the context mentions specific figures for "
             f"different programmes, highlight the one relevant to {programme} if possible.\n\n"
             f"Context:\n{context}\n\n"
             f"Question: {query}\n\n"
             f"Give a clear, precise answer but keep the tone approachable and encouraging."
             f"make sure you act a friend and do chatting like a friend"
-            f"give detailed answer"
+            f"give detailed answer ,only if needed."
+            f"If the context does not contain the answer, reply: 'I don’t have that information in the college documents.'"
         )
 
-    response = model.invoke(prompt)
+    response = model.invoke( [
+            ("system", prompt),
+            *state["messages"],
+        ])
     return {"messages": [("ai", response.content.strip())]}
 
 
@@ -225,7 +232,7 @@ builder.add_edge("fee", "response")
 builder.add_edge("general", "response")
 builder.add_edge("response", END)
  
-memory = MemorySaver()
+memory = InMemorySaver()
 graph = builder.compile(checkpointer=memory)
 
 
@@ -239,12 +246,13 @@ def main():
     print(f"\nGreat! You're set as a {student_programme} student.\n")
 
     config = {"configurable": {"thread_id": "student-session-1"}}
-
+    conversation = []
     while True:
         user_query = input("You: ")
         if user_query.lower() in ["exit", "quit"]:
             print("Assistant: Bye! Have a great day 💖")
             break
+        conversation.append(("human", user_query))
 
         result = graph.invoke(
             {

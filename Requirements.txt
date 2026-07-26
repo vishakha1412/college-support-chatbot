@@ -17,4 +17,6 @@ huggingface-hub
 streamlit
 pydantic
 streamlit
+fastapi
+uvicorn
  
